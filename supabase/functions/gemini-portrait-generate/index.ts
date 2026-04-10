@@ -2,28 +2,42 @@ const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 
-// Style reference images stored in Supabase Storage bucket "style-references"
-// Upload images named: royal-renaissance.jpg, garden-party.jpg, etc.
+// Reference image filename mapping (stored in Supabase Storage bucket "style-references")
+const REFERENCE_IMAGE_FILES: Record<string, string> = {
+  "old-masters":      "old-masters-reference.jpg",
+  "clawfoot-spa":     "clawfoot-spa-reference.jpg",
+  "tea-party":        "tea-party-reference.png",
+  "howdy-partner":    "howdy-partner-reference.jpg",
+  "oyster-hour":      "oyster-hour-reference.png",
+  "the-toast":        "the-toast-reference.png",
+  "disco-room":       "disco-room-reference.png",
+  "pizza-party":      "pizza-party-reference.png",
+  "bath-time":        "bath-time-reference.png",
+  "beauty-sleep":     "beauty-sleep-reference.png",
+  "flower-bed":       "flower-bed-reference.jpg",
+  "steak-dinner":     "steak-dinner-reference.jpg",
+  "birthday-party":   "birthday-reference.jpg",
+};
+
 async function fetchStyleReferenceImage(style: string): Promise<{ base64: string; mimeType: string } | null> {
-  const extensions = ["jpg", "jpeg", "png", "webp"];
-  for (const ext of extensions) {
-    const url = `${SUPABASE_URL}/storage/v1/object/public/style-references/${style}.${ext}`;
-    try {
-      const res = await fetch(url);
-      if (res.ok) {
-        const arrayBuffer = await res.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const base64 = btoa(binary);
-        const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
-        return { base64, mimeType };
-      }
-    } catch (_) {
-      // try next extension
-    }
+  const filename = REFERENCE_IMAGE_FILES[style];
+  if (!filename) return null;
+
+  const url = `${SUPABASE_URL}/storage/v1/object/public/style-references/${filename}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const arrayBuffer = await res.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    const base64 = btoa(binary);
+    const ext = filename.split(".").pop()!.toLowerCase();
+    const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+    return { base64, mimeType };
+  } catch (_) {
+    return null;
   }
-  return null;
 }
 
 const corsHeaders = {
@@ -32,245 +46,280 @@ const corsHeaders = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STYLE PROMPTS
-// Philosophy: Each prompt describes exactly what the FINAL IMAGE looks like —
-// scene, lighting, painting technique, and how the animal appears in it.
-// The animal's exact appearance (breed, fur color, markings, eyes) must always
-// be faithfully preserved — it must be instantly recognizable as the same pet.
+// STYLE PROMPTS — 18 styles matching companionarchive.com
+// When hasReference=true, Gemini receives: [prompt] + [reference image] + [pet photo]
+// The prompt instructs Gemini to use IMAGE 1 as scene/style blueprint and
+// IMAGE 2 as the animal to paint into that scene.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildStylePrompt(style: string, petName?: string, hasReference?: boolean): string {
-  const name = petName ? `The pet's name is ${petName}. ` : "";
+  const name = petName ? `The subject's name is ${petName}. ` : "";
   const refNote = hasReference
-    ? "You are given TWO images: IMAGE 1 is a STYLE REFERENCE — use it as a blueprint for the exact scene, background, lighting, composition, and painting technique. IMAGE 2 is the PET PHOTO — paint this exact animal into the scene from IMAGE 1. Preserve the animal's exact breed, fur color, markings, and eye color from IMAGE 2 while matching the style and scene from IMAGE 1 as closely as possible. "
+    ? "You are given TWO images: IMAGE 1 is a STYLE REFERENCE — it defines the exact scene, background, furniture, props, lighting, color palette, and painting style. IMAGE 2 is the PET PHOTO — this is the animal to paint. Reproduce the scene from IMAGE 1 as closely as possible, replacing the animal in it with the animal from IMAGE 2 (preserve exact breed, fur color, markings, eye color). "
     : "";
 
-  const prompt = buildBasePrompt(style, name);
-  return refNote + prompt;
+  const basePrompt = buildBasePrompt(style, name);
+  return refNote + basePrompt;
 }
 
 function buildBasePrompt(style: string, name: string): string {
   switch (style) {
 
-    // ── ROYAL RENAISSANCE ────────────────────────────────────────────────────
-    case "royal-renaissance":
-      return `${name}Create a museum-quality oil painting portrait of the animal from the photo, in the style of 17th century European court painters — Rembrandt van Rijn, Anthony van Dyck, and Velázquez.
+    // ── OLD MASTERS ──────────────────────────────────────────────────────────
+    case "old-masters":
+      return `${name}Create a museum-quality oil painting portrait of the animal in the style of 17th century Dutch and Flemish masters — Rembrandt, Vermeer, and Velázquez.
 
-FINAL IMAGE DESCRIPTION:
-The animal is seated upright in a grand ornate velvet throne inside a noble manor. The chair is deep burgundy or forest green velvet with carved gilded wooden armrests. The animal wears a luxurious royal ermine cloak draped over its shoulders — deep wine-red velvet with white ermine fur trim (white with small black tail-tip spots) along all edges. A simple elegant gold chain hangs around its neck. The animal's face, chest, and paws are uncovered and clearly visible. The background is a rich dark interior — warm deep brown fading to near-black at the edges, with a hint of heavy draped curtain on one side. The overall mood is dignified, noble, and timeless.
+SCENE: The animal is posed regally on an antique armchair or chaise longue upholstered in rich burgundy velvet, set against a dark interior background with deep brown damask wallpaper. The composition is formal and dignified — a classic portrait pose.
 
-PAINTING TECHNIQUE:
-True oil painting — visible, confident brushstrokes on the background and fabric. Smooth, luminous treatment on the animal's face and fur. Rich impasto texture on the velvet cloak. Deep, saturated colors typical of Dutch Golden Age painting. The painting has depth, warmth, and the unmistakable glow of old masters.
+PAINTING STYLE: True old master oil painting — deep, rich shadows, luminous highlights, visible brushwork on the background and fabrics. Smooth, detailed treatment on the animal's face. The palette is warm and earthy: deep browns, burgundies, gold.
 
-LIGHTING:
-Classic Rembrandt chiaroscuro — a single warm golden light source from upper-left. The animal's face and chest are brightly illuminated with golden warmth. Deep soft shadows fall on the right side. The eyes have a small, bright catchlight. The ermine cloak catches the light on its raised edges while the folds fall into deep shadow.
+LIGHTING: Classic Rembrandt chiaroscuro — warm golden light from upper left illuminates the face brilliantly while the rest falls into soft shadow. A small bright catchlight in each eye.
 
-ANIMAL LIKENESS — CRITICAL:
-You MUST preserve this animal's exact appearance from the reference photo: same breed, same exact fur color and pattern, same markings, same eye color, same facial structure. The animal must be 100% recognizable as the same pet. Only add the royal cloak and chain — do not change any other feature.
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal must be 100% recognizable as the same pet.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE PORTRAIT LOUNGE ──────────────────────────────────────────────────
+    case "portrait-lounge":
+      return `${name}Create a luxurious, glamorous oil painting portrait of the animal reclining elegantly on a crimson velvet Chesterfield sofa — old-world glamour meets modern sophistication.
+
+SCENE: The animal lounges regally on a deep crimson/ruby velvet tufted Chesterfield sofa. The background is a rich, warm interior — dark wood paneling or deep-toned wallpaper, perhaps a floor lamp casting warm amber light. The overall atmosphere is an elegant, private lounge or salon.
+
+PAINTING STYLE: Rich, detailed oil painting with warm, saturated colors. Deep crimson and burgundy of the sofa dominate. The animal's fur is painted with luminous detail against the rich background.
+
+LIGHTING: Warm, intimate interior lighting — soft amber from a nearby lamp, creating a cozy, exclusive atmosphere. Gentle highlights on the velvet and the animal's fur.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal reclines naturally — no costume, just pure elegance.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE LAZY SUNDAY ──────────────────────────────────────────────────────
+    case "lazy-sunday":
+      return `${name}Create a charming, warm oil painting portrait of the animal in full relaxation mode — sunglasses on, matching robe or soft blanket, the epitome of luxury leisure.
+
+SCENE: The animal lounges in a plush armchair or on a bed, wearing oversized glamorous sunglasses and wrapped in or surrounded by a luxurious silk or velvet robe. A cup of coffee or tea and perhaps a magazine nearby. The setting is a beautifully decorated bedroom or morning room — soft light, warm colors.
+
+PAINTING STYLE: Warm, inviting oil painting with soft, glowing colors. Creamy whites, warm peach tones, soft pastels. Painterly and charming — this should feel luxuriously cozy.
+
+LIGHTING: Soft morning or afternoon window light — gentle, diffuse, warm. The animal is bathed in soft golden light. Everything feels peaceful and indulgent.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The sunglasses rest naturally on the animal's face — change nothing else.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE CLAWFOOT SPA ─────────────────────────────────────────────────────
+    case "clawfoot-spa":
+      return `${name}Create a delightful, luxurious oil painting portrait of the animal relaxing in a vintage pink clawfoot bathtub surrounded by spa luxury — pure pampered bliss.
+
+SCENE: The animal sits or reclines in a beautiful vintage pink clawfoot bathtub filled with bubbles. Surrounding the tub: fluffy white towels, candles, perhaps a glass of champagne or a rubber duck, rose petals scattered on the floor. The bathroom is beautiful — tiled walls, warm lighting, an air of total luxury. The animal wears a small towel turban on its head or has cucumbers on its eyes.
+
+PAINTING STYLE: Warm, charming oil painting — pinks, whites, creamy tones dominate. Soft, delicate treatment of the bubbles and the animal's expression. Playful yet refined.
+
+LIGHTING: Warm, golden bathroom lighting — perhaps candlelight or soft lamp light. Everything glows warmly. The bubbles catch the light in small pearlescent highlights.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. Add only the spa props — change nothing about the animal's features.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE OPEN ROAD ────────────────────────────────────────────────────────
+    case "open-road":
+      return `${name}Create a joyful, cinematic oil painting portrait of the animal hanging out of a car window — fur flying, eyes bright, pure unbridled happiness.
+
+SCENE: The animal leans out of the open window of a vintage or modern car, face into the wind, ears back (if applicable), mouth open in a joyful expression. The background: a beautiful open road stretching into the distance — golden fields, blue sky, warm summer light. The car door and window frame the animal perfectly.
+
+PAINTING STYLE: Warm, vibrant oil painting with a sense of movement and joy. Golden tones, bright blues, lush greens. The wind-blown fur is painted with energetic, flowing brushstrokes.
+
+LIGHTING: Beautiful golden hour or bright daylight — warm, directional sunlight from the side. The animal's fur glows with warm highlights. Bright, joyful, full of life.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. Capture the joy and movement — this is the happiest portrait.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE TEA PARTY ────────────────────────────────────────────────────────
+    case "tea-party":
+      return `${name}Create an enchanting, elegant impressionist oil painting portrait of the animal hosting an exquisite afternoon tea in a beautiful English rose garden.
+
+SCENE: The animal is seated at a small garden table set with fine bone china — dainty teacups, a tiered cake stand with scones and petite fours, a silver teapot, fresh cut roses in a vase. The garden around is lush and blooming — roses climbing a trellis behind, hedgerows, dappled sunlight through leaves. The animal is the gracious host of this very proper affair.
+
+PAINTING STYLE: Soft impressionist oil painting — loose, luminous brushstrokes in the background garden, more refined treatment on the animal and the tea table. Soft pinks, greens, warm whites. Reminiscent of a classic English garden painting.
+
+LIGHTING: Beautiful dappled afternoon garden light — warm golden sunshine filtering through leaves. Soft shadows and bright highlights on the china and flowers.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal sits naturally and elegantly — no costume.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE HERITAGE PORTRAIT ────────────────────────────────────────────────
+    case "heritage-portrait":
+      return `${name}Create a dramatic, timeless oil painting portrait of the animal in the tradition of great 18th century portrait painting — noble, powerful, and immortalized in dramatic chiaroscuro light.
+
+SCENE: The animal is posed against a very dark, almost black background — a classic portrait backdrop. The animal faces slightly to one side, a dignified and composed expression. No props, no costume — just the animal itself, perfectly lit, the sole focus of this masterpiece portrait.
+
+PAINTING STYLE: Dramatic old master oil painting — deep, rich darkness of the background contrasting with brilliant illumination on the face. Visible, confident brushstrokes. Rich, deep color. This is a serious, timeless portrait.
+
+LIGHTING: Pure Rembrandt lighting — a single, strong warm light source from upper left. One side of the face brilliantly illuminated, the other falls into deep, warm shadow. A small triangle of light on the shadowed cheek. Bright catchlights in both eyes.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal's beauty and character are the entire subject — let it shine.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── MIDNIGHT RANCH ───────────────────────────────────────────────────────
+    case "midnight-ranch":
+      return `${name}Create a moody, atmospheric oil painting portrait of the animal as a rugged western character under a dramatic midnight sky — cinematic, powerful, and deeply evocative.
+
+SCENE: The animal is posed in a western landscape at night or deep dusk — a fence post, a barn in the distance, rolling prairie. The animal wears a worn cowboy hat or sits naturally in western surroundings. Above: a breathtaking midnight sky — deep navy blue, scattered stars, perhaps a full moon casting silver light across the landscape.
+
+PAINTING STYLE: Dramatic, painterly western noir — deep blues and blacks of the night sky, warm amber lamplight or firelight illuminating the animal, silvery moonlight on the landscape. Moody and cinematic.
+
+LIGHTING: Moonlight as the key light — cool, silvery, directional. A warm amber secondary light (lantern or fire) from one side creates beautiful contrast. Stars pinprick the deep blue sky. The overall effect is hauntingly beautiful.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The dramatic night lighting tints the fur with blue and amber — this is correct.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── HOWDY PARTNER ────────────────────────────────────────────────────────
+    case "howdy-partner":
+      return `${name}Create an irresistible, charming oil painting portrait of the animal peeking over a wooden fence in a cowboy hat — pure country charm and personality.
+
+SCENE: The animal is peeking up over a rustic wooden fence or gate, front paws on the top rail, wearing a classic cowboy hat. Behind: a golden prairie or ranch scene — blue sky, golden fields, perhaps a barn in the distance. The composition is playful and adorable — just the animal's face and paws visible above the fence line.
+
+PAINTING STYLE: Warm, charming oil painting with golden, sunlit tones. Rustic warm wood of the fence, golden fields, bright blue sky. Painted with warmth and personality.
+
+LIGHTING: Beautiful golden hour sunshine — warm, directional, from the side. The cowboy hat casts a gentle shadow over the animal's face. The fence and fields glow with warm golden light.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The cowboy hat rests naturally on the animal's head — change nothing else.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE OYSTER HOUR ──────────────────────────────────────────────────────
+    case "oyster-hour":
+      return `${name}Create a sumptuous, glamorous oil painting portrait of the animal dining on fresh oysters and champagne — the very picture of sophisticated luxury.
+
+SCENE: The animal is seated at an elegant marble table set with a platter of fresh oysters on ice with lemon wedges, a crystal flute of sparkling champagne, perhaps a small silver fork. The setting is a beautiful, intimate restaurant or terrace — warm lighting, elegant surroundings. The animal's expression is composed and supremely self-satisfied.
+
+PAINTING STYLE: Rich, glamorous oil painting — cool marble whites, silver, golden champagne tones. The oysters gleam with moisture and light. The crystal glass catches brilliant highlights. Sophisticated and indulgent.
+
+LIGHTING: Warm, intimate restaurant lighting — soft amber candlelight or low lamp light. The champagne glass sparkles. The oysters glisten. The animal's face is warmly illuminated.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal sits elegantly at the table — no costume.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE TOAST ────────────────────────────────────────────────────────────
+    case "the-toast":
+      return `${name}Create a charming, celebratory oil painting portrait of the animal raising a toast — a crystal glass lifted, an expression of utter smugness and self-congratulation.
+
+SCENE: The animal holds or has a crystal wine or champagne glass raised in a toast. The setting is elegant — a fine dining table, a fireplace, or a beautiful interior. Perhaps other glasses in the background suggesting a celebration. The animal's expression is magnificently self-satisfied, as if it has just done something worthy of the greatest celebration.
+
+PAINTING STYLE: Warm, celebratory oil painting — crystal glass sparkling with caught light, warm interior tones, rich and inviting. The palette is warm golds, deep reds, creamy whites.
+
+LIGHTING: Warm interior lighting — candlelight or fireplace glow. The crystal glass refracts and catches the light brilliantly. The animal's face glows with warm, flattering light.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The glass is positioned naturally — change nothing about the animal's actual features.
+
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE DISCO ROOM ───────────────────────────────────────────────────────
+    case "disco-room":
+      return `${name}Create a vibrant, electric oil painting portrait of the animal as the undisputed star of a 1970s disco — glittery, neon, impossibly fabulous.
+
+SCENE: The animal poses front-and-center on a glittery disco dancefloor. Above: a massive rotating mirrored disco ball scatters hundreds of rainbow light reflections across everything. The background: dark club interior lit by electric neon lights — deep purples, hot pinks, electric blues. Blurred other dancers in the background. The animal has a glittery collar or jeweled accessory and radiates total star energy.
+
+PAINTING STYLE: High-contrast, vibrant digital oil painting — deep dark background making the neon colors and disco ball reflections explode. Small circular light spots scatter across the animal's fur from the disco ball. Rich, saturated, electric color palette.
+
+LIGHTING: Multiple colored neon sources — pinks, purples, blues — plus a golden spotlight from directly above. Disco ball scatters small bright dots of reflected light across everything. One side of the animal's face tinted pink/purple, the other blue — electric and alive.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The neon tints on the fur are correct and add to the atmosphere.
 
 OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
 
-    // ── GARDEN PARTY ─────────────────────────────────────────────────────────
-    case "garden-party":
-      return `${name}Create a stunning impressionist oil painting portrait of the animal from the photo, in the style of Pierre-Auguste Renoir and Claude Monet — warm, luminous, romantic.
+    // ── THE PIZZA PARTY ──────────────────────────────────────────────────────
+    case "pizza-party":
+      return `${name}Create a fun, colorful, joyful oil painting portrait of the animal at a festive pizza party — pure happiness, pure chaos, pure deliciousness.
 
-FINAL IMAGE DESCRIPTION:
-The animal is resting or sitting naturally among an explosion of summer flowers in a lush English garden. Surrounding the animal: large blooming roses (soft pink, cream, deep red), garden peonies, lavender stalks, and wild garden flowers in full bloom. The flowers are so lush they almost frame the animal's face like a natural wreath. Behind, a softly blurred impressionist garden — dappled sunlight through leaves, more flowers, warm greens. The animal itself is the sharp, detailed focal point; everything behind is painted in loose, dream-like impressionist strokes.
+SCENE: The animal is seated at a pizza party table — an open pizza box with a whole pizza (melted cheese, colorful toppings), perhaps a slice held in a paw or nearby. Soda cans, paper plates, streamers, maybe a birthday hat. The setting is cheerful and playful — a kitchen table or party setting covered in pizza fun.
 
-PAINTING TECHNIQUE:
-Loose, expressive impressionist oil painting for the background and flowers — visible, energetic brushstrokes that capture light and movement. The animal's face and fur are painted with more detail and precision, making it stand out from the painterly background. Rich, saturated flower colors — deep pinks, warm purples, creamy whites, vivid greens.
+PAINTING STYLE: Bright, fun, warm oil painting — vivid reds of the tomato sauce, golden melted cheese, colorful toppings. The setting is joyful and energetic. Painterly and warm.
 
-LIGHTING:
-Warm golden afternoon sunlight filtering through garden foliage from above. Soft dappled light on the animal's fur — golden highlights on the top of the head and back. Warm, even ambient light fills the whole scene. The eyes are bright and alive with reflected garden light.
+LIGHTING: Bright, cheerful indoor or outdoor party lighting — warm, even, cheerful. Everything is well-lit and inviting. The cheese has a beautiful golden melt.
 
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same exact fur color and pattern, same eye color. The animal must be instantly recognizable as the same pet from the photo. Paint it naturally — not in costume, just placed beautifully among the flowers.
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal's expression is pure joy — this is a celebration.
 
 OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
 
-    // ── STEAK DINNER ─────────────────────────────────────────────────────────
+    // ── BATH TIME ────────────────────────────────────────────────────────────
+    case "bath-time":
+      return `${name}Create a hilarious, charming oil painting portrait of the animal enjoying an extremely luxurious bath — spa sunglasses, a cocktail, the works.
+
+SCENE: The animal is in a bubble bath — surrounded by mountains of white bubbles. Wearing large, glamorous sunglasses. A martini glass or cocktail with an umbrella nearby. Perhaps rose petals floating in the water. The expression: total bliss, completely unbothered. This is the most relaxed animal in the world.
+
+PAINTING STYLE: Fresh, bubbly, fun oil painting — whites and soft blues of the bubbles, perhaps pink rose petals, the sparkle of the cocktail glass. Charming and playful with a touch of elegance.
+
+LIGHTING: Soft, warm bathroom lighting — candles or warm lamps. The bubbles have soft, pearlescent highlights. The cocktail glass sparkles. Everything glows warmly and peacefully.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The sunglasses rest naturally on the face — change nothing about the animal's actual features.
+
+OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── BEAUTY SLEEP ─────────────────────────────────────────────────────────
+    case "beauty-sleep":
+      return `${name}Create a serene, sumptuous oil painting portrait of the animal in the most luxurious slumber — silk sheets, satin pillows, eye mask, the very portrait of beauty rest.
+
+SCENE: The animal sleeps peacefully on an enormous, impossibly luxurious bed — silk or satin sheets in soft ivory, champagne, or blush pink. Monogrammed pillowcases. Perhaps a silk eye mask. The animal is completely at peace, elegantly arranged, taking the most important beauty rest of its life.
+
+PAINTING STYLE: Soft, dreamy oil painting — silky, lustrous fabrics with gentle folds catching the light. Soft, muted palette of ivories, champagnes, blush pinks. The entire scene radiates peaceful luxury.
+
+LIGHTING: Soft, gentle morning or late afternoon light — perhaps sunlight filtering through gauzy curtains, casting a warm, dreamy glow over the entire scene. Everything is bathed in soft gold.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal sleeps naturally and beautifully — add only the silk surroundings.
+
+OUTPUT: 2:3 or square portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE FLOWER BED ───────────────────────────────────────────────────────
+    case "flower-bed":
+      return `${name}Create a breathtaking, romantic oil painting portrait of the animal sleeping peacefully in a lush garden of flowers — surrounded by blooms, utterly at peace.
+
+SCENE: The animal is curled up or sleeping gently, completely nestled in a soft bed of flowers — roses, peonies, lavender, wildflowers in full bloom surrounding and framing the animal. Petals drift softly around. The animal is so peaceful, so perfectly at home among the flowers that they seem made for each other.
+
+PAINTING STYLE: Lush, romantic impressionist-influenced oil painting — loose, expressive brushstrokes for the flowers, soft and detailed for the sleeping animal. Rich, saturated flower colors — deep pinks, soft purples, creamy whites, vivid greens. The entire painting glows with natural beauty.
+
+LIGHTING: Soft, warm garden light — dappled sunlight filtering through foliage, casting gentle golden patches across the flowers and the sleeping animal. The whole scene is bathed in warm, peaceful light.
+
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal sleeps naturally among the flowers — paint it naturally.
+
+OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
+
+    // ── THE STEAK DINNER ─────────────────────────────────────────────────────
     case "steak-dinner":
-      return `${name}Create a charming, beautifully painted digital oil painting portrait of the animal from the photo, seated at an elegant fine dining restaurant table as if it were a distinguished dinner guest.
+      return `${name}Create a magnificent, warm oil painting portrait of the animal seated at an upscale steakhouse — a distinguished dinner guest enjoying prime cuts and smooth sips.
 
-FINAL IMAGE DESCRIPTION:
-The animal is seated upright at a white linen tablecloth restaurant table, facing the viewer. On the table: a perfectly presented gourmet meal — a juicy steak fillet on a fine china plate, gleaming silver cutlery on each side, a crystal wine glass filled with deep red wine, a lit candle in a silver candleholder, and a small flower arrangement. The restaurant interior behind is dark and intimate — warm wood paneling, soft amber wall lighting, other candlelit tables blurred in the background. The animal is wearing a small black bow tie (or no tie — just looking supremely dignified). Its expression is serious and distinguished, as if reviewing the menu.
+SCENE: The animal is seated upright at a fine dining table with white linen. On the table: a perfectly cooked steak on fine china, gleaming silverware, a crystal glass of red wine, a lit candle, a small bread basket. The restaurant behind: dark wood, warm amber lighting, intimate atmosphere. The animal's expression: deeply, profoundly satisfied — this is exactly where it belongs.
 
-PAINTING TECHNIQUE:
-Rich, detailed digital oil painting — very high quality, warm color palette dominated by deep browns, warm ambers, candlelight golds, and rich reds. The tablecloth has soft white highlights and gentle shadows from the candlelight. The crystal glass catches the candlelight in small bright reflections.
+PAINTING STYLE: Rich, warm oil painting — deep warm browns, amber candlelight, the deep red of the wine. The steak glistens, the crystal sparkles. Warm, sophisticated, indulgent.
 
-LIGHTING:
-Warm candlelight as the primary light source — golden, flickering, intimate. The candle illuminates the animal's face from slightly below, creating a warm golden glow under its chin and on its chest. Deep, cozy shadows fill the background. Small bright reflections catch in the wine glass and silverware.
+LIGHTING: Warm candlelight — golden, flickering, intimate. The candle illuminates the animal's face from below with warm gold. Bright specular highlights on the wine glass and silverware. Deep cozy shadows in the background.
 
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same exact fur color and markings, same eye color. The animal must be 100% recognizable. Only add the small bow tie if it suits the composition — never change the animal's actual features.
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal sits at the table naturally — no costume required.
 
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
+OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
 
-    // ── DISCO KING ───────────────────────────────────────────────────────────
-    case "disco-king":
-      return `${name}Create a vibrant, fun, high-energy digital painting portrait of the animal from the photo as the undisputed star of a 1970s-80s disco dancefloor — glittery, electric, and totally fabulous.
+    // ── THE BIRTHDAY PARTY ───────────────────────────────────────────────────
+    case "birthday-party":
+      return `${name}Create a joyful, festive, colorful oil painting portrait of the animal at its own birthday party — cake, balloons, presents, pure celebration energy.
 
-FINAL IMAGE DESCRIPTION:
-The animal is posed front-and-center, owning the dancefloor. Above it: a massive mirrored disco ball, rotating, scattering hundreds of small rainbow light reflections across everything. The background is a dark club interior filled with electric neon lights — deep purples, electric pinks, hot magentas, electric blues, and warm golds. The floor beneath is a glittery reflective surface that catches all the neon color. Other blurred dancers in the background suggest a packed club. The animal has a fabulous glittery collar or jeweled necklace. Its expression: total confidence, like it owns every dance floor it has ever walked on.
+SCENE: The animal is the star of a wonderful birthday party — in front of a beautiful birthday cake with lit candles, surrounded by colorful balloons (floating, tied to the chair), wrapped presents piled nearby. Perhaps a festive banner above. The animal wears a birthday party hat. Its expression: pure joy, pure celebration, this is the best day of its life.
 
-PAINTING TECHNIQUE:
-Vivid, high-contrast digital painting with painterly oil-painting texture. Deep dark background making the neon colors and light reflections explode visually. The disco ball reflections appear as small, bright circular spots of light scattered across the animal's fur, the floor, and the background. Rich, saturated colors — this painting should feel electric and alive.
+PAINTING STYLE: Bright, joyful, warm oil painting — vibrant colors everywhere. The candle flames flicker warmly on the cake. Balloons in bright reds, blues, yellows, greens. The presents in colorful wrapping paper. Everything radiates celebration.
 
-LIGHTING:
-Multiple colored neon light sources from all directions — pinks, purples, blues, and golden spotlight from directly above. The disco ball scatters small bright reflected dots of light across the animal's fur and face. One dominant warm spotlight from above creates the main illumination. The animal's eyes reflect the colored lights.
+LIGHTING: Warm party lighting — the birthday candles provide warm dancing light on the animal's face. Overhead warm interior lighting fills the scene with cheer. The candle flames are bright points of warm light.
 
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal must be recognizable as the same pet. Add only the glittery collar — change nothing else about the animal's actual features.
+ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The party hat sits naturally on the animal's head — change nothing else.
 
 OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── CHAMPAGNE & OYSTERS ──────────────────────────────────────────────────
-    case "champagne-oysters":
-      return `${name}Create a luxurious, sun-drenched oil painting portrait of the animal from the photo relaxing on the deck of a private superyacht at golden hour — pure elegance, pure luxury.
-
-FINAL IMAGE DESCRIPTION:
-The animal is resting regally on a cream or white cushioned deck chair on an immaculate yacht deck. The deck is polished teak wood, gleaming in the golden hour light. To the side: a silver ice bucket with a Champagne bottle, a crystal flute of sparkling Champagne, and a beautiful arrangement of fresh oysters on a silver platter with lemon wedges. Behind the animal: a white yacht railing and then an endless golden ocean horizon — the sun is setting, painting the sky in deep oranges, warm pinks, and glowing golds. The water reflects the golden sky below.
-
-PAINTING TECHNIQUE:
-Warm, golden-toned oil painting with rich, glowing colors. The entire palette is dominated by warm golds, champagne colors, creamy whites, and deep ocean blues. The light has that unmistakable magic of golden hour — everything glows. High-quality, detailed painting with loose painterly strokes in the sky and water.
-
-LIGHTING:
-Golden hour sunlight from low on the horizon — warm, directional, and rich. Everything is bathed in golden amber light. The Champagne glass catches the light in brilliant specular highlights. The animal's fur glows with warm golden highlights on the side facing the sun. The ocean water reflects the golden sky in long shimmering streaks.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal must be recognizable as the same pet. Paint it resting naturally — no costume, just pure luxury surroundings.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── SPACE ODYSSEY ────────────────────────────────────────────────────────
-    case "space-odyssey":
-      return `${name}Create an epic, cinematic, highly detailed digital painting portrait of the animal from the photo as a heroic astronaut floating in deep space — awe-inspiring and breathtaking.
-
-FINAL IMAGE DESCRIPTION:
-The animal is wearing a realistic, detailed NASA-style spacesuit — pure white with silver metallic details, mission patches on the shoulders, and a clear glass helmet (open so the animal's face is fully visible and the helmet frames the face). The animal floats weightlessly in deep space. The background is stunning outer space: a magnificent nebula fills the background with deep cosmic purples, electric blues, and glowing gold dust clouds. Bright stars scatter across the darkness. A large planet or moon is partially visible to one side, its curved surface showing craters or swirling atmosphere. The overall mood is heroic, wondrous, and epic.
-
-PAINTING TECHNIQUE:
-Highly detailed, cinematic digital oil painting. The spacesuit is painted with meticulous detail — every seam, patch, and visor reflection. The space background is painted with rich, luminous colors — deep navy and black punctuated by glowing nebula colors and sharp star points. The contrast between the bright white spacesuit and the dark space background is dramatic.
-
-LIGHTING:
-Dramatic space lighting — a strong directional light source (a nearby star or the sun) illuminates the animal's face and the front of the spacesuit brilliantly. The opposite side falls into deep cool shadow. The nebula provides soft ambient colored glow from behind. Stars create small pinpoint highlights. The animal's eyes are brightly lit and catch the starlight.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal's face must be 100% recognizable inside the spacesuit helmet. Only add the spacesuit — change nothing about the animal's actual features.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── MEDIEVAL KNIGHT ──────────────────────────────────────────────────────
-    case "medieval-knight":
-      return `${name}Create a dramatic, epic, highly detailed oil painting portrait of the animal from the photo as a noble medieval knight in full armour — heroic, powerful, and regal.
-
-FINAL IMAGE DESCRIPTION:
-The animal is wearing a magnificent suit of full medieval plate armour — polished bright steel with intricate engraved details on the breastplate and pauldrons (shoulder pieces). A great helm or open-faced visor is pushed back to fully reveal the animal's face. The armour fits the animal's body believably. From the armour hangs a rich tabard or surcoat — deep royal blue or crimson red with a golden heraldic emblem. In the background: the great hall of a stone castle — tall arched stone walls lit by burning wall torches, a large heraldic banner hanging above, and the soft glow of a fireplace to one side. The animal's expression is noble, brave, and commanding.
-
-PAINTING TECHNIQUE:
-Rich, detailed oil painting with dramatic contrast between light and shadow. The polished armour catches torchlight in bright metallic highlights while the crevices fall into deep shadow. The stone castle walls are painted in rough, textured strokes. The banner fabric has visible weave texture. The overall palette: cool steel greys of the armour contrasted with warm amber torchlight and the rich color of the tabard.
-
-LIGHTING:
-Dramatic warm torchlight from multiple wall sconces — flickering, amber, directional. The polished armour catches the torchlight in bright specular highlights on the raised surfaces. The animal's face is warmly illuminated by the nearest torch. Deep shadows fill the corners and the recesses of the armour. A hint of cooler light from a distant window provides subtle contrast.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal's face must be 100% recognizable above the armour. Only add the armour and tabard — change nothing about the animal's actual features.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── PARIS CAFÉ ───────────────────────────────────────────────────────────
-    case "paris-cafe":
-      return `${name}Create a charming, warm, impressionist-style oil painting portrait of the animal from the photo enjoying a peaceful morning at a classic Parisian sidewalk café.
-
-FINAL IMAGE DESCRIPTION:
-The animal is seated at a small round bistro table on a classic Parisian sidewalk. On the table: a white ceramic cup of café crème (coffee with cream), a fresh golden croissant on a small plate, a tiny vase with a single red rose, and a folded French newspaper. The bistro chairs are classic black rattan. Behind the animal: a typical Parisian street scene — warm golden stone building facades with wrought-iron balconies, a green awning of the café above, and softly blurred pedestrians on the cobblestone boulevard. In the far background, slightly blurred, the distinctive silhouette of the Eiffel Tower is visible against a soft morning sky.
-
-PAINTING TECHNIQUE:
-Warm impressionist oil painting — loose, energetic brushstrokes in the background street scene that suggest movement and Parisian life. More detailed, focused treatment on the animal's face and the café table. The palette is warm and golden — warm stone colors, soft morning light, golden browns of the croissant, creamy whites of the coffee cup.
-
-LIGHTING:
-Warm Parisian morning sunlight from one side — golden, gentle, and flattering. The croissant glows with warm golden light. The coffee steam catches the morning light. The animal's fur has warm golden highlights on the lit side with soft shadows on the other. The overall mood is peaceful, civilized, and effortlessly chic.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal must be recognizable as the same pet. Paint it naturally seated at the café — no costume, just completely at home in Paris.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── NEON NOIR ────────────────────────────────────────────────────────────
-    case "neon-noir":
-      return `${name}Create a moody, cinematic oil painting portrait of the animal from the photo in a 1940s film noir meets modern neon-city-night aesthetic — mysterious, dramatic, impossibly cool.
-
-FINAL IMAGE DESCRIPTION:
-The animal stands or sits in a rain-soaked dark city alley or under a vintage street lamp at night. The wet cobblestone street reflects neon signs in shimmering color — electric blues, hot pinks, deep reds, acid yellows. Neon signs from nearby storefronts glow and reflect off every wet surface. The animal is framed by the darkness, with just enough light to see it clearly — a detective at rest, surveying the night. A vintage lamppost provides warm amber backlight. Fog or light rain adds atmospheric depth. The animal looks calm, mysterious, and completely in its element.
-
-PAINTING TECHNIQUE:
-High-contrast cinematic digital oil painting. Deep, inky shadows fill most of the composition — the darkness is rich and layered, not flat. The neon colors are vivid and saturated against the dark background, with visible glowing halos around each light source. Wet surfaces are painted with reflective, almost mirror-like treatment. The overall palette: deep blacks, navy blues, with electric neon accents of pink, teal, and amber.
-
-LIGHTING:
-Multiple colored neon light sources from off-screen signs — electric blue, hot pink, amber. One warm amber street lamp provides backlight and rim lighting around the animal. The wet street reflects all these lights below. The animal's face catches just enough light to be clearly visible — one side illuminated by neon color, the other in deep shadow.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal must be recognizable as the same pet despite the dramatic lighting. The neon colors may tint the fur slightly — this is correct and adds to the atmosphere.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── TROPICAL BEACH ───────────────────────────────────────────────────────
-    case "tropical-beach":
-      return `${name}Create a joyful, sun-drenched, vibrant digital oil painting portrait of the animal from the photo on a perfect tropical paradise beach — pure vacation bliss.
-
-FINAL IMAGE DESCRIPTION:
-The animal is posed happily on a perfect white sand beach. The sand is pristine, fine, and bright white. Behind the animal: crystal-clear turquoise water that graduates from pale aqua near the shore to deeper teal farther out. Several tall palm trees sway gently to one side, their fronds catching a warm breeze. Colorful tropical flowers bloom at the base of the palms. A bright blue sky with just a few soft white clouds completes the scene. The animal looks completely happy and at home — relaxed, ears catching the breeze, eyes bright and joyful.
-
-PAINTING TECHNIQUE:
-Vivid, bright, warm digital oil painting. Rich, saturated tropical colors — the turquoise sea, white sand, vivid green palms, and bright blue sky are all painted at full saturation and warmth. The painting is lively and energetic — this is the happiest portrait in the collection. Loose, expressive brushwork in the water and sky; more detailed treatment on the animal.
-
-LIGHTING:
-Strong, bright tropical sunshine from overhead and slightly behind — that perfect midday beach light. The animal's fur has bright highlights on the top and back from the sun, with warmer shadow tones on the underside. The water sparkles with bright sunlight reflections. The white sand reflects warm ambient light back up onto the scene. Everything glows with warmth.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal must be recognizable as the same pet. Paint it naturally happy on the beach — no costume, just pure tropical joy.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── WARRIOR ──────────────────────────────────────────────────────────────
-    case "warrior":
-      return `${name}Create an epic, heroic, cinematic oil painting portrait of the animal from the photo as a legendary ancient warrior — powerful, triumphant, and awe-inspiring.
-
-FINAL IMAGE DESCRIPTION:
-The animal is wearing detailed ancient warrior armour — choose the most dramatic style: Greek bronze breastplate with engraved muscle detail, Roman lorica segmentata, Viking chainmail and fur, or dark fantasy plate armour. A great helm is pushed back or removed to show the animal's face fully. A flowing battle cape — deep crimson, royal blue, or forest green — billows dramatically behind. The animal stands on high ground — the edge of a cliff or mountain peak — looking out over an epic landscape. Behind it: a dramatic sky with dark storm clouds breaking apart, golden sunlight bursting through in dramatic rays, illuminating the landscape below. The mood is triumphant — this warrior has won.
-
-PAINTING TECHNIQUE:
-Epic, cinematic oil painting with dramatic lighting and bold composition. The armour is painted with metallic precision — bright highlights on raised edges, deep shadows in crevices. The sky is painted with sweeping, dramatic brushstrokes — dark clouds and breaking golden light. The landscape below is loosely painted to give scale and atmosphere. Rich, heroic color palette: deep blues and greys of the armour, warm gold of the breakthrough sunlight, rich red/blue of the cape.
-
-LIGHTING:
-Dramatic golden sunlight breaking through storm clouds from behind and above — epic, heavenly, theatrical. This light creates strong rim lighting around the animal and the armour edges, making them glow. The front of the animal's face is lit by the diffuse golden sky light. Deep cool shadows from the storm clouds fill the landscape. The overall effect is cinematic and triumphant.
-
-ANIMAL LIKENESS — CRITICAL:
-Preserve this animal's exact appearance: same breed, same fur color and markings, same eye color. The animal's face must be 100% recognizable inside the warrior armour. Only add the armour and cape — change nothing about the animal's actual features.
-
-OUTPUT: Square or 2:3 portrait format. No text, no watermarks, no borders.`;
-
-    // ── 3D CARTOON ───────────────────────────────────────────────────────────
-    case "3d-cartoon":
-      return `${name}Create a beautiful, high-quality 3D animated CGI portrait of the animal from the photo in the exact visual style of Pixar and Walt Disney Animation Studios — impossibly charming, expressive, and adorable.
-
-FINAL IMAGE DESCRIPTION:
-The animal rendered as a lovable Pixar/Disney animated character — but clearly recognizable as the same animal from the photo. The body has soft, rounded proportions typical of CG animation — slightly exaggerated cuteness while remaining clearly the same species and breed. The eyes are large, expressive, shiny, and full of personality — the hallmark of Pixar character design. The fur is rendered with stunning CG quality — soft, fluffy, perfectly lit subsurface scattering making it look incredibly touchable. The background is a clean, cheerful, softly colored environment — a warm gradient, a simple colorful room, or a bright cheerful outdoor scene. Everything radiates warmth and joy.
-
-TECHNIQUE:
-This is the EXCEPTION to the oil painting rule. Create a photorealistic 3D CGI render in the style of Pixar feature films — not a painting. The quality should be indistinguishable from an actual Pixar production still. Perfect subsurface scattering on the fur, realistic wet-look eyes with multiple specular highlights, soft ambient occlusion in crevices, and beautiful studio lighting. Color grading: warm, slightly saturated, cheerful — just like Pixar movies.
-
-LIGHTING:
-Perfect 3-point studio lighting: warm key light from upper-left, soft fill light from the right, and a gentle rim light from behind. Multiple specular highlights in the large, expressive eyes. Soft ambient occlusion making the fur look three-dimensional and real. The overall light is warm, golden, and flattering.
-
-ANIMAL LIKENESS — CRITICAL:
-The animal must be recognizable as the same species, breed, and color as in the reference photo — translated faithfully into Pixar CGI style. Same fur colors and markings, same eye color (but larger and more expressive in Pixar style), same breed characteristics. The Pixar-ification should enhance, not replace, the animal's identity.
-
-OUTPUT: Square format preferred. No text, no watermarks, no borders.`;
 
     // ── DEFAULT ───────────────────────────────────────────────────────────────
     default:
-      return `${name}Create a museum-quality oil painting portrait of the animal from the photo in the style of the European old masters — timeless, noble, and beautifully painted.
+      return `${name}Create a museum-quality oil painting portrait of the animal in the style of the European old masters — timeless, noble, and beautifully painted.
 
 The animal is the main subject, painted in a dignified pose against a rich dark Rembrandt-style background. Warm golden chiaroscuro lighting illuminates the animal's face and fur. The painting style features visible brushstrokes, rich color depth, and luminous oil painting quality.
 
@@ -305,7 +354,7 @@ Deno.serve(async (req) => {
     if (styleRef) {
       console.log(`Style reference image loaded for: ${style}`);
     } else {
-      console.log(`No style reference image found for: ${style} — using prompt only`);
+      console.log(`No style reference image for: ${style} — using prompt only`);
     }
 
     let outputBase64: string | null = null;
