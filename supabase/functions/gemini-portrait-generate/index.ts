@@ -1,44 +1,6 @@
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-
-// Reference image filename mapping (stored in Supabase Storage bucket "style-references")
-const REFERENCE_IMAGE_FILES: Record<string, string> = {
-  "old-masters":      "old-masters-reference.jpg",
-  "clawfoot-spa":     "clawfoot-spa-reference.jpg",
-  "tea-party":        "tea-party-reference.png",
-  "howdy-partner":    "howdy-partner-reference.jpg",
-  "oyster-hour":      "oyster-hour-reference.png",
-  "the-toast":        "the-toast-reference.png",
-  "disco-room":       "disco-room-reference.png",
-  "pizza-party":      "pizza-party-reference.png",
-  "bath-time":        "bath-time-reference.png",
-  "beauty-sleep":     "beauty-sleep-reference.png",
-  "flower-bed":       "flower-bed-reference.jpg",
-  "steak-dinner":     "steak-dinner-reference.jpg",
-  "birthday-party":   "birthday-reference.jpg",
-};
-
-async function fetchStyleReferenceImage(style: string): Promise<{ base64: string; mimeType: string } | null> {
-  const filename = REFERENCE_IMAGE_FILES[style];
-  if (!filename) return null;
-
-  const url = `${SUPABASE_URL}/storage/v1/object/public/style-references/${filename}`;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const arrayBuffer = await res.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const base64 = btoa(binary);
-    const ext = filename.split(".").pop()!.toLowerCase();
-    const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
-    return { base64, mimeType };
-  } catch (_) {
-    return null;
-  }
-}
+const SITE_URL = Deno.env.get("SITE_URL") || "";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -342,7 +304,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { images, style, petName } = body;
+    const { images, style, petName, referenceImage } = body;
 
     if (!images || images.length === 0) {
       throw new Error("No images provided");
@@ -351,15 +313,11 @@ Deno.serve(async (req) => {
       throw new Error("No style provided");
     }
 
-    // Try to load style reference image from Supabase Storage
-    const styleRef = await fetchStyleReferenceImage(style);
+    // referenceImage is sent from the frontend as { base64, mimeType }
+    const styleRef = referenceImage || null;
     const prompt = buildStylePrompt(style, petName, !!styleRef);
 
-    if (styleRef) {
-      console.log(`Style reference image loaded for: ${style}`);
-    } else {
-      console.log(`No style reference image for: ${style} — using prompt only`);
-    }
+    console.log(`Style: ${style}, hasReference: ${!!styleRef}`);
 
     let outputBase64: string | null = null;
     let outputMimeType = "image/png";
