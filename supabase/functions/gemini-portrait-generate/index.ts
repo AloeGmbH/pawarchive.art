@@ -1,5 +1,30 @@
 const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY")!;
 const GEMINI_MODEL = "gemini-2.5-flash-preview-05-20";
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+
+// Style reference images stored in Supabase Storage bucket "style-references"
+// Upload images named: royal-renaissance.jpg, garden-party.jpg, etc.
+async function fetchStyleReferenceImage(style: string): Promise<{ base64: string; mimeType: string } | null> {
+  const extensions = ["jpg", "jpeg", "png", "webp"];
+  for (const ext of extensions) {
+    const url = `${SUPABASE_URL}/storage/v1/object/public/style-references/${style}.${ext}`;
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const arrayBuffer = await res.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const base64 = btoa(binary);
+        const mimeType = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "png" ? "image/png" : "image/webp";
+        return { base64, mimeType };
+      }
+    } catch (_) {
+      // try next extension
+    }
+  }
+  return null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,9 +39,17 @@ const corsHeaders = {
 // be faithfully preserved — it must be instantly recognizable as the same pet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildStylePrompt(style: string, petName?: string): string {
+function buildStylePrompt(style: string, petName?: string, hasReference?: boolean): string {
   const name = petName ? `The pet's name is ${petName}. ` : "";
+  const refNote = hasReference
+    ? "You are given TWO images: IMAGE 1 is a STYLE REFERENCE — use it as a blueprint for the exact scene, background, lighting, composition, and painting technique. IMAGE 2 is the PET PHOTO — paint this exact animal into the scene from IMAGE 1. Preserve the animal's exact breed, fur color, markings, and eye color from IMAGE 2 while matching the style and scene from IMAGE 1 as closely as possible. "
+    : "";
 
+  const prompt = buildBasePrompt(style, name);
+  return refNote + prompt;
+}
+
+function buildBasePrompt(style: string, name: string): string {
   switch (style) {
 
     // ── ROYAL RENAISSANCE ────────────────────────────────────────────────────
@@ -265,7 +298,15 @@ Deno.serve(async (req) => {
       throw new Error("No style provided");
     }
 
-    const prompt = buildStylePrompt(style, petName);
+    // Try to load style reference image from Supabase Storage
+    const styleRef = await fetchStyleReferenceImage(style);
+    const prompt = buildStylePrompt(style, petName, !!styleRef);
+
+    if (styleRef) {
+      console.log(`Style reference image loaded for: ${style}`);
+    } else {
+      console.log(`No style reference image found for: ${style} — using prompt only`);
+    }
 
     let outputBase64: string | null = null;
     let outputMimeType = "image/png";
@@ -275,6 +316,17 @@ Deno.serve(async (req) => {
 
       const parts: any[] = [{ text: prompt }];
 
+      // IMAGE 1: Style reference (if available)
+      if (styleRef) {
+        parts.push({
+          inlineData: {
+            mimeType: styleRef.mimeType,
+            data: styleRef.base64,
+          },
+        });
+      }
+
+      // IMAGE 2 (or 1 if no reference): Pet photo(s)
       for (const img of images) {
         parts.push({
           inlineData: {
