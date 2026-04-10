@@ -59,7 +59,11 @@ function buildStylePrompt(style: string, petName?: string, hasReference?: boolea
     : "";
 
   const basePrompt = buildBasePrompt(style, name);
-  return refNote + basePrompt;
+  const anatomyNote = `
+
+ANATOMY — CRITICAL: The animal has exactly the correct number of legs and paws for its species (4 legs for dogs and cats). Do NOT paint extra legs, extra paws, or duplicate limbs. Every leg must connect naturally to the body. If unsure, show only 2 front paws and keep the body partially covered by props or fabric.`;
+
+  return refNote + basePrompt + anatomyNote;
 }
 
 function buildBasePrompt(style: string, name: string): string {
@@ -67,15 +71,15 @@ function buildBasePrompt(style: string, name: string): string {
 
     // ── OLD MASTERS ──────────────────────────────────────────────────────────
     case "old-masters":
-      return `${name}Create a museum-quality oil painting portrait of the animal in the style of 17th century Dutch and Flemish masters — Rembrandt, Vermeer, and Velázquez.
+      return `${name}Create a museum-quality oil painting portrait in the style of 17th century Dutch and Flemish masters — Rembrandt, Vermeer, Velázquez.
 
-SCENE: The animal is posed regally on an antique armchair or chaise longue upholstered in rich burgundy velvet, set against a dark interior background with deep brown damask wallpaper. The composition is formal and dignified — a classic portrait pose.
+SCENE: The animal sits on an antique wooden armchair with burgundy velvet upholstery. Behind it: dark brown damask wallpaper with a subtle pattern. The composition is a tight 3/4 bust portrait — show the head, chest, and front paws clearly. The animal sits naturally upright, looking slightly to one side with a dignified, composed expression. Keep the lower body minimal or cropped — do NOT show all four legs fully extended.
 
-PAINTING STYLE: True old master oil painting — deep, rich shadows, luminous highlights, visible brushwork on the background and fabrics. Smooth, detailed treatment on the animal's face. The palette is warm and earthy: deep browns, burgundies, gold.
+PAINTING STYLE: True old master oil painting. Deep, velvety dark background. Smooth luminous treatment on the face and fur. Visible brushwork on the chair and wallpaper. Warm earthy palette: deep browns, burgundy, gold ochre. The painting should look like it belongs in a museum.
 
-LIGHTING: Classic Rembrandt chiaroscuro — warm golden light from upper left illuminates the face brilliantly while the rest falls into soft shadow. A small bright catchlight in each eye.
+LIGHTING: Rembrandt chiaroscuro — one warm golden light source from upper left. The face and near-side of the body are brilliantly illuminated. The far side falls into deep soft shadow. A clear bright catchlight in each eye.
 
-ANIMAL LIKENESS — CRITICAL: Preserve exact breed, fur color, markings, and eye color. The animal must be 100% recognizable as the same pet.
+ANIMAL LIKENESS — CRITICAL: Same breed, same fur color and markings, same eye color. Instantly recognizable as the same pet. No costume, no accessories — the animal's natural beauty is the portrait.
 
 OUTPUT: 2:3 portrait format. No text, no watermarks, no borders.`;
 
